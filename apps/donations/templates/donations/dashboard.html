@@ -1,0 +1,236 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - Paws Rescue{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="bi bi-speedometer2"></i> Donation Dashboard</h2>
+            <p class="text-muted">Track and manage all donations</p>
+        </div>
+        <div class="col-auto">
+            <a href="{% url 'donation_create' %}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Add Donation
+            </a>
+            <a href="{% url 'export_csv' %}" class="btn btn-success">
+                <i class="bi bi-file-earmark-spreadsheet"></i> Export CSV
+            </a>
+        </div>
+    </div>
+
+    <!-- Analytics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-currency-dollar"></i> Total All Time</h5>
+                    <h2 class="mb-0">{{ total_all_time|floatformat:2 }} PKR</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-filter-circle"></i> Filtered Total</h5>
+                    <h2 class="mb-0">{{ total_filtered|floatformat:2 }} PKR</h2>
+                    <small>{{ total_count }} donation(s)</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-trophy"></i> Top 5 Pets</h5>
+                    <div class="small">
+                        {% for pet in top_pets %}
+                        <div>{{ forloop.counter }}. {{ pet.pet_name }} - {{ pet.total_amount|floatformat:2 }} PKR</div>
+                        {% empty %}
+                        <div>No donations yet</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Filters Sidebar -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="bi bi-funnel"></i> Filters</h5>
+                </div>
+                <div class="card-body">
+                    <form method="get">
+                        {{ filter_form.search.label_tag }}
+                        {{ filter_form.search }}
+
+                        <hr>
+
+                        <label class="form-label">Date Range</label>
+                        <div class="mb-2">
+                            {{ filter_form.date_from.label_tag }}
+                            {{ filter_form.date_from }}
+                        </div>
+                        <div class="mb-3">
+                            {{ filter_form.date_to.label_tag }}
+                            {{ filter_form.date_to }}
+                        </div>
+
+                        <hr>
+
+                        <div class="mb-3">
+                            {{ filter_form.payment_method.label_tag }}
+                            {{ filter_form.payment_method }}
+                        </div>
+
+                        <div class="mb-3">
+                            {{ filter_form.currency.label_tag }}
+                            {{ filter_form.currency }}
+                        </div>
+
+                        <hr>
+
+                        <label class="form-label">Amount Range</label>
+                        <div class="mb-2">
+                            {{ filter_form.amount_min.label_tag }}
+                            {{ filter_form.amount_min }}
+                        </div>
+                        <div class="mb-3">
+                            {{ filter_form.amount_max.label_tag }}
+                            {{ filter_form.amount_max }}
+                        </div>
+
+                        <hr>
+
+                        <div class="mb-3">
+                            {{ filter_form.sort_by.label_tag }}
+                            {{ filter_form.sort_by }}
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-search"></i> Apply Filters
+                            </button>
+                            <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">
+                                <i class="bi bi-x-circle"></i> Clear
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Donations Table -->
+        <div class="col-md-9">
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Donor Name</th>
+                                    <th>Pet Name</th>
+                                    <th>Amount</th>
+                                    <th>Payment Method</th>
+                                    <th>Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for donation in page_obj %}
+                                <tr>
+                                    <td>{{ donation.id }}</td>
+                                    <td>
+                                        <strong>{{ donation.donor_name }}</strong><br>
+                                        {% if donation.donor_phone %}
+                                        <small class="text-muted">
+                                            <i class="bi bi-telephone"></i> {{ donation.donor_phone }}
+                                        </small><br>
+                                        {% endif %}
+                                        {% if donation.donor_email %}
+                                        <small class="text-muted">
+                                            <i class="bi bi-envelope"></i> {{ donation.donor_email }}
+                                        </small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-secondary">{{ donation.pet_name }}</span>
+                                    </td>
+                                    <td>
+                                        <strong>{{ donation.amount|floatformat:2 }}</strong> {{ donation.currency }}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">{{ donation.get_payment_method_display }}</span>
+                                        {% if donation.reference_no %}
+                                        <br><small class="text-muted">Ref: {{ donation.reference_no }}</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ donation.donation_date|date:"Y-m-d H:i" }}</td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <a href="{% url 'donation_update' donation.id %}"
+                                                class="btn btn-outline-primary">
+                                                <i class="bi bi-pencil"></i>
+                                            </a>
+                                            <a href="{% url 'donation_delete' donation.id %}"
+                                                class="btn btn-outline-danger">
+                                                <i class="bi bi-trash"></i>
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted py-4">
+                                        <i class="bi bi-inbox" style="font-size: 3rem;"></i><br>
+                                        No donations found. Try adjusting your filters or add a new donation.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    {% if page_obj.has_other_pages %}
+                    <nav aria-label="Donations pagination">
+                        <ul class="pagination justify-content-center">
+                            {% if page_obj.has_previous %}
+                            <li class="page-item">
+                                <a class="page-link"
+                                    href="?page=1{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
+                            </li>
+                            <li class="page-item">
+                                <a class="page-link"
+                                    href="?page={{ page_obj.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
+                            </li>
+                            {% endif %}
+
+                            <li class="page-item active">
+                                <span class="page-link">
+                                    Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                                </span>
+                            </li>
+
+                            {% if page_obj.has_next %}
+                            <li class="page-item">
+                                <a class="page-link"
+                                    href="?page={{ page_obj.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
+                            </li>
+                            <li class="page-item">
+                                <a class="page-link"
+                                    href="?page={{ page_obj.paginator.num_pages }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

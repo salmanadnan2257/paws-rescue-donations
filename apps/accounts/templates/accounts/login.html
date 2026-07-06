@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+
+{% block title %}Login - Paws Rescue{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center mt-5">
+        <div class="col-md-5">
+            <div class="card shadow">
+                <div class="card-body p-5">
+                    <div class="text-center mb-4">
+                        <h1 class="h3 mb-3">
+                            <i class="bi bi-paw text-primary"></i>
+                            Paws Rescue
+                        </h1>
+                        <p class="text-muted">Donation Management System</p>
+                    </div>
+
+                    <form method="post">
+                        {% csrf_token %}
+
+                        <div class="mb-3">
+                            <label for="{{ form.email.id_for_label }}" class="form-label">Email</label>
+                            {{ form.email }}
+                            {% if form.email.errors %}
+                            <div class="text-danger small">{{ form.email.errors }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="{{ form.password.id_for_label }}" class="form-label">Password</label>
+                            {{ form.password }}
+                            {% if form.password.errors %}
+                            <div class="text-danger small">{{ form.password.errors }}</div>
+                            {% endif %}
+                        </div>
+
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {{ form.non_field_errors }}
+                        </div>
+                        {% endif %}
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="bi bi-box-arrow-in-right"></i> Login
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <p class="text-center text-muted mt-3">
+                <small>Admin access only. No public registration.</small>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

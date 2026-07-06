@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block title %}Delete Donation - Paws Rescue{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center mt-5">
+        <div class="col-md-6">
+            <div class="card border-danger">
+                <div class="card-header bg-danger text-white">
+                    <h4><i class="bi bi-exclamation-triangle"></i> Confirm Deletion</h4>
+                </div>
+                <div class="card-body">
+                    <p>Are you sure you want to delete this donation?</p>
+
+                    <div class="card bg-light mb-3">
+                        <div class="card-body">
+                            <p><strong>Donor:</strong> {{ donation.donor_name }}</p>
+                            <p><strong>Pet:</strong> {{ donation.pet_name }}</p>
+                            <p><strong>Amount:</strong> {{ donation.amount }} {{ donation.currency }}</p>
+                            <p><strong>Date:</strong> {{ donation.donation_date|date:"Y-m-d H:i" }}</p>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-circle"></i> This action cannot be undone!
+                    </div>
+
+                    <form method="post" class="d-inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash"></i> Yes, Delete
+                        </button>
+                        <a href="{% url 'dashboard' %}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

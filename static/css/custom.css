@@ -1,0 +1,102 @@
+/* Custom Styles for Paws Rescue */
+
+:root {
+    --primary-color: #0d6efd;
+    --success-color: #198754;
+    --danger-color: #dc3545;
+}
+
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+}
+
+.footer {
+    margin-top: auto;
+}
+
+/* Card hover effects */
+.card {
+    transition: box-shadow 0.3s ease-in-out;
+}
+
+.card:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+/* Table responsive styling */
+.table-responsive {
+    border-radius: 0.375rem;
+}
+
+/* Badge styling */
+.badge {
+    font-weight: 500;
+}
+
+/* Form improvements */
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* Button group spacing */
+.btn-group-sm > .btn {
+    padding: 0.25rem 0.5rem;
+}
+
+/* Analytics cards */
+.card.bg-primary,
+.card.bg-success,
+.card.bg-info {
+    transition: transform 0.2s;
+}
+
+.card.bg-primary:hover,
+.card.bg-success:hover,
+.card.bg-info:hover {
+    transform: translateY(-5px);
+}
+
+/* Pagination */
+.pagination {
+    margin-top: 1rem;
+}
+
+/* Alert styling */
+.alert {
+    border-radius: 0.375rem;
+}
+
+/* Login card */
+.card.shadow {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
+}
+
+/* Navbar brand */
+.navbar-brand {
+    font-weight: 600;
+    font-size: 1.25rem;
+}
+
+/* Empty state */
+.bi-inbox {
+    opacity: 0.3;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .table {
+        font-size: 0.875rem;
+    }
+    
+    .btn-group-sm > .btn {
+        padding: 0.125rem 0.25rem;
+    }
+}
