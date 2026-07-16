@@ -1,0 +1,369 @@
+% explainer-source-hash: f749393b7f38e0d6d15c3f1e7bc1a051ad8c17439c55d82b1a6fe2bb4aefe790
+% explainer-source-commit: a49871e563da2cb89c2448fb6db326242aa5301c
+% explainer-generated: 2026-07-16
+% Regenerate with /explain-all (see WIRING.md). Do not edit this stamp by hand:
+% it is how the toolchain knows whether this document still matches the code.
+\documentclass[11pt,a4paper]{article}
+\input{preamble}
+
+\title{\vspace{-1.5cm}\textbf{Paws Rescue Donations}\\[0.3cm]
+\large Brief: What It Is, How It Works, and Where It Breaks}
+\author{Explainer for \texttt{paws-rescue-donations}}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\section*{The short version}
+
+\begin{keyidea}{In one paragraph}
+A Django web application that replaces a pet rescue's donation spreadsheet with a
+database behind a login. Staff record who gave how much for which animal, filter and sort
+those records, watch running totals, and export the result as CSV. Built for a
+faculty-supervised Khidmat community-service project at Habib University. It is small,
+conventional and competently made. It also carries two real bugs, both verified by
+running the code, both sitting in the only two features nobody wrote a test for.
+\end{keyidea}
+
+This document assumes no prior knowledge; a glossary at the end defines every technical
+term it uses. Its companion, the Deep Dive, walks the same project function by function.
+
+\section{Why it exists}
+
+Small rescues track donations in a spreadsheet. That works until two or three people are
+entering records, at which point three failures arrive at once: no access control, no
+consistent fields, and no reliable way to ask the data a question such as ``how much has
+Bella received this month''.
+
+This project answers that with the smallest thing that could work: one database, one
+login, one dashboard. There is no public side at all. No donor-facing page, no sign-up
+form. Every route is behind staff authentication.
+
+\begin{keyidea}{The complete feature set}
+Email and password login; create, edit and delete donations; filter by seven criteria at
+once; sort and paginate; a dashboard with running totals and a top-5-pets panel; CSV
+export of the filtered view; add and remove staff logins from the web UI.
+\end{keyidea}
+
+\section{How it is built}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\textwidth}{!}{
+\begin{tikzpicture}[node distance=8mm]
+  \node[extbox] (b) {Browser\\ \scriptsize Bootstrap 5 via CDN};
+  \node[box, below=10mm of b] (mw) {Middleware\\ \scriptsize security, whitenoise, session, CSRF, auth};
+  \node[box, below=9mm of mw] (u) {URL routing};
+  \node[box, below left=11mm and 12mm of u] (acc) {\code{apps.accounts}\\ \scriptsize login, staff management};
+  \node[box, below right=11mm and 12mm of u] (don) {\code{apps.donations}\\ \scriptsize dashboard, CRUD, CSV};
+  \node[box, below=24mm of u] (orm) {Django ORM};
+  \node[store, below=9mm of orm] (db) {PostgreSQL in production\\ SQLite locally};
+
+  \draw[flow] (b) -- node[lbl,right]{request} (mw);
+  \draw[flow] (mw) -- (u);
+  \draw[flow] (u) -- (acc);
+  \draw[flow] (u) -- (don);
+  \draw[flow] (acc) -- (orm);
+  \draw[flow] (don) -- (orm);
+  \draw[flow] (orm) -- node[lbl,right]{SQL} (db);
+  \draw[dflow] (mw.west) to[bend right=50] node[lbl,left]{HTML} (b.west);
+\end{tikzpicture}}
+\caption{Everything is server-rendered. The browser receives finished HTML and runs no
+JavaScript the project wrote itself.}
+\end{figure}
+
+Two Django apps carry all the behaviour. \code{accounts} decides who may log in;
+\code{donations} is the subject matter. A third folder, \code{paws\_rescue}, holds
+configuration rather than features. Six dependencies, all pinned: Django, psycopg2,
+python-dotenv, gunicorn, whitenoise, dj-database-url.
+
+\subsection{The whole data model}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.9\textwidth}{!}{
+\begin{tikzpicture}
+  \node[box, font=\scriptsize] (u) {{\small\textbf{User}}\\ UUID id, unique email,\\ is\_staff, is\_superuser, is\_active};
+  \node[box, font=\scriptsize, right=40mm of u] (d) {{\small\textbf{Donation}}\\ integer id, donor name/phone/email,\\ pet\_name, amount (Decimal), currency,\\ payment\_method, reference\_no,\\ donation\_date, notes};
+  \draw[dflow] (u) -- node[lbl,above]{this relationship\\ does not exist} (d);
+\end{tikzpicture}}
+\caption{Two tables, and the missing link between them: nothing records which staff
+member entered a donation.}
+\end{figure}
+
+\subsection{Three decisions worth understanding}
+
+\textbf{A custom user model, defined on day one.} Django's built-in user has a
+\code{username} field; this app wants email-only login. So it defines its own user with
+\code{USERNAME\_FIELD = 'email'}, a UUID primary key, and a hand-written manager to
+replace the default one (whose \code{create\_user(username, ...)} signature no longer
+fits). This matters more than it looks: \code{AUTH\_USER\_MODEL} is close to unchangeable
+after the first migration, so it is the highest-leverage decision in a new Django
+project, and getting it right at the start is a genuine credit to the build.
+
+\textbf{Money is a \code{Decimal}, never a float.} Floats store values in binary, where
+0.1 has no exact representation and \code{0.1 + 0.2} yields \code{0.30000000000000004}.
+Summing thousands of donations that way accumulates real error. \code{DecimalField}
+stores the digits exactly.
+
+\textbf{Filtering rides on QuerySet laziness.} \code{dashboard\_view} stacks up to seven
+filters, each applied only if the user supplied that field. None of them touch the
+database. A Django QuerySet records conditions and runs nothing until something reads it,
+so all seven collapse into a single SQL query with one \code{WHERE} clause.
+
+\subsection{The dashboard, which is where the work happens}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{
+\begin{tikzpicture}[node distance=5mm]
+  \node[box] (all) {\code{Donation.objects.all()}};
+  \node[box, below=6mm of all] (filt) {apply up to 7 optional filters\\ \scriptsize search, date range, method, currency, amount range};
+  \node[box, below=5mm of filt] (sort) {sort};
+  \node[box, right=26mm of filt] (tot) {totals + top 5 pets\\ \scriptsize aggregated over the \emph{filtered} set};
+  \node[box, below=6mm of tot] (pag) {paginate, 20 per page};
+  \node[store, below=6mm of pag] (s) {session:\\ \scriptsize every filtered id};
+  \node[box, left=22mm of s] (csv) {\code{export\_csv\_view}\\ \scriptsize reads them back};
+
+  \draw[flow] (all) -- (filt);
+  \draw[flow] (filt) -- (sort);
+  \draw[flow] (sort.east) to[bend right=25] (tot.west);
+  \draw[flow] (tot) -- (pag);
+  \draw[flow] (pag) -- (s);
+  \draw[flow] (s) -- node[lbl,above]{later GET} (csv);
+\end{tikzpicture}}
+\caption{One view does filtering, aggregation, pagination and the session handoff that
+feeds CSV export. That last arrow is where both of the project's serious bugs live.}
+\end{figure}
+
+The CSV export link is a plain GET carrying no filter state, so the export view cannot
+know what the dashboard was showing. The workaround: the dashboard writes every matching
+donation id into the session, and the export view reads them back. The README already
+calls this ``the weakest part of the design''. It is right, and running it shows the
+weakness is more concrete than the README realised.
+
+\section{Verification: what was actually run}
+
+Nothing in this document is taken on trust from the README. A clean virtual environment
+was built, the pinned dependencies installed, and the code executed.
+
+\begin{lstlisting}[caption={The test suite, run on this machine}]
+$ python manage.py test
+Ran 11 tests in 12.828s
+
+OK
+\end{lstlisting}
+
+Eleven tests, all passing, exactly as the README claims. They cover authentication
+redirects, admin creation, the self-deletion guard, donation CRUD, search, and the CSV
+response headers. The dependency pins install cleanly.
+
+That is a real result and it is also the setup for the section below: the suite is green
+and the two worst bugs are untouched by it.
+
+\section{Where it breaks}
+
+\begin{honest}{A filter matching nothing exports the entire database}
+\code{export\_csv\_view} reads the session ids and branches on
+\code{if filtered\_ids:}. An empty list is falsy, so it cannot distinguish ``the user
+never loaded the dashboard, export everything'' from ``the user's filter matched zero
+rows, export nothing''. Driven through the real test client with two donations present:
+\begin{lstlisting}
+GET /dashboard/?search=NoSuchDonorZZZ   -> page shows "0 donation(s)", session ids == []
+GET /donations/export/                  -> CSV contains 2 data rows (every donor)
+\end{lstlisting}
+The user filters to nothing, sees ``No donations found'', clicks Export CSV, and silently
+downloads every donor name, phone number and email in the system. It is triggered by an
+ordinary action, it fails in the unsafe direction, and it is invisible because the file
+downloads without complaint. This is the most serious defect in the project and the fix
+is one line.
+\end{honest}
+
+\begin{honest}{Mixed currencies are added together and labelled PKR}
+\code{Sum('amount')} ignores the \code{currency} column next to it, and the dashboard
+template appends the literal text ``PKR'' to the result. With one 100 PKR donation and
+one 100 USD donation present:
+\begin{lstlisting}
+total_all_time: 200        rendered page contains "200.00 PKR"? True
+\end{lstlisting}
+The dashboard reports 200.00 PKR. The rescue received 100 PKR and 100 USD. A confidently
+presented wrong number is worse than an error.
+\end{honest}
+
+\begin{honest}{The README's own account of the currency issue is backwards}
+The README says a free-text currency field means typos such as ``pkr'' or ``Rs'' ``would
+silently split the totals''. Running it shows the opposite. Nothing splits; everything
+merges, because the totals never group by currency in the first place. And
+\code{currency\_\_iexact} means the filter already folds ``pkr'' into ``PKR'' correctly,
+so the case-typo case is the one that works. This is worth flagging plainly: an
+interviewer will read the README as the author's own assessment, and defending a
+self-assessment the code contradicts is harder than having none. The real fix is not just
+a choice list; even with a clean enum, summing across currencies is still meaningless.
+The dashboard must group by currency or convert at a recorded rate.
+\end{honest}
+
+\begin{honest}{The development database is committed, hash and all}
+\file{db.sqlite3} is tracked in git and \file{.gitignore} does not exclude it. It was
+added deliberately (commit \code{a49871e}). Reading it directly: one user row for
+\code{admin@example.com}, superuser, with a real PBKDF2 password hash; two expired
+session rows; zero donations. The exposure is genuinely limited (placeholder email,
+no donor data, expired sessions, 600{,}000-iteration hash) so this is not an emergency.
+It is still a committed credential hash and a bad habit, and the next person who commits
+that file after entering real donor data publishes real donor data.
+\end{honest}
+
+\begin{honest}{Every web-created admin is an unvalidated superuser}
+\file{settings.py} configures the four standard password validators, but they only run
+where something calls them, and \code{AdminCreationForm} never does: it subclasses
+\code{ModelForm}, not Django's \code{UserCreationForm}. Verified by running the form:
+a one-character password \code{'1'} validates cleanly, no errors. Meanwhile the form
+hard-codes \code{is\_staff = True} and \code{is\_superuser = True} on every account it
+creates, so there is exactly one privilege level. The two compound into the weakest
+possible password on the most privileged possible account. The validators do run for
+\code{manage.py createsuperuser}, which is why the gap is easy to miss: the settings look
+correct.
+\end{honest}
+
+\begin{honest}{No audit trail}
+\code{Donation} has no foreign key to \code{User}. Nothing records who entered or deleted
+a record, and deletes are hard deletes with no history. For a system whose entire purpose
+is tracking other people's money, this is the largest structural gap, and it is the first
+thing a reviewer will ask about. The README raises it too.
+\end{honest}
+
+\begin{honest}{Smaller, and real}
+\code{SECRET\_KEY} falls back to a hard-coded value published in the repo, so a
+deployment that forgets the variable runs happily on a known key. The session export
+grows without bound and is rewritten to the database on every request
+(\code{SESSION\_SAVE\_EVERY\_REQUEST = True}). \code{donation\_date} and
+\code{pet\_name} drive the ordering and the grouping and neither is indexed.
+\code{logout\_view} still accepts GET. \code{UserCreationForm} is imported and unused,
+\code{is\_admin} is defined twice, and \code{django.contrib.admin} is routed at
+\code{/admin/} with nothing registered in it.
+\end{honest}
+
+\subsection{Why a green suite missed all of this}
+
+\begin{honest}{The tests assert on page text, and on the easy branch}
+Every assertion is a substring match against the whole HTML response, chrome included.
+The project already has a scar from this: \code{assertNotContains(response, 'Max')} once
+failed on a page with no donation for the pet Max, because the filter form's ``Max
+Amount'' label contained the substring. It was resolved by renaming the label to ``Amount
+To''. That fix is backwards, and worth admitting: the user interface was changed to suit
+the test's matching strategy, and the test is still fragile.
+
+Beyond fragility, three tests assert less than their names promise.
+\code{test\_filter\_by\_payment\_method} checks that the cash donor appears but never
+that the online donor is absent, so a filter that ignored its parameter entirely would
+pass. \code{test\_amount\_validation} checks only that no row was created, so a view that
+crashed with a 500 would pass. And \code{test\_csv\_export\_...} exercises the export
+with no filter applied, which is the branch that works.
+
+That last one is the whole lesson. Eleven green tests bought real confidence about
+authentication and CRUD, and no confidence at all about the two features most likely to
+put a wrong number, or somebody's phone number, in front of a user.
+\end{honest}
+
+\section{What is genuinely good}
+
+Said plainly, because it is not padding. The custom user model was done on day one, which
+is the one Django decision that is nearly impossible to walk back. Money is a
+\code{Decimal}. The amount filters use \code{if amount\_min is not None} rather than a
+truthiness test, a deliberate guard against falsy zero showing the author was thinking
+about edge cases. The self-deletion guard is enforced in the view, not merely hidden in
+the template. The top-pets panel once aggregated over the unfiltered table and
+contradicted the total beside it; noticing and fixing that is exactly the class of bug
+most people ship.
+
+And the \code{TESTING = 'test' in sys.argv} flag is a real debugging win. Working out why
+every test suddenly 301-redirects to https requires knowing that \code{manage.py test}
+does \emph{not} set \code{DEBUG=True}, so a block guarded by \code{if not DEBUG} applies
+during tests and \code{SECURE\_SSL\_REDIRECT} silently breaks the entire suite. That is a
+non-obvious chain, and the README reconstructs it correctly.
+
+The README volunteers several of its own weaknesses, including the missing foreign key,
+the session export and the missing indexes. That is rarer than it should be and worth
+defending as deliberate practice, which is exactly why the one place it gets a detail
+backwards (the currency claim) is worth correcting before someone else finds it.
+
+\section{If it continued}
+
+\begin{enumerate}
+  \item Fix the empty-filter export. Live data-exposure bug, one-line change, and add the
+    test that catches it.
+  \item Group totals by currency, or constrain the field and then group. Stop printing a
+    number that is not true.
+  \item Untrack \file{db.sqlite3}.
+  \item Validate admin passwords; stop making every admin a superuser.
+  \item Add \code{entered\_by} to \code{Donation}; stop hard-deleting.
+  \item Re-derive the export from the query string and delete the session handoff, which
+    retires two findings at once.
+  \item Make \code{SECRET\_KEY} mandatory in production; index \code{donation\_date} and
+    \code{pet\_name}; split settings into base, dev and prod.
+\end{enumerate}
+
+\begin{keyidea}{The one-sentence summary}
+A small, conventional, competently built Django CRUD app that gets several non-obvious
+Django decisions right and carries two real bugs in the two places nobody tested: an
+empty filter exports everything, and mixed currencies are added together and labelled
+PKR.
+\end{keyidea}
+
+\section*{Glossary}
+
+\begin{description}[leftmargin=0pt, style=nextline, itemsep=3pt]
+  \item[Django] A Python web framework: a pre-built skeleton handling the plumbing
+    (listening for requests, matching URLs, talking to the database, rendering HTML) so
+    you write only what is specific to your problem.
+  \item[App] A Django folder grouping the models, views and templates for one area of
+    responsibility. Not a separate program. One project contains many.
+  \item[Model] A Python class describing one kind of record, which Django maps onto a
+    database table.
+  \item[View] A Python function that receives a request, does the work, and returns a
+    response.
+  \item[Template] An HTML file with placeholders filled in with data at render time.
+    Django escapes values by default, which is what makes displaying donor-entered names
+    safe.
+  \item[ORM] Object-Relational Mapper. Lets you write
+    \code{Donation.objects.filter(pet\_name='Max')} instead of SQL, and returns Python
+    objects rather than rows.
+  \item[QuerySet] What the ORM returns. Lazy: it records conditions and does not query
+    the database until something reads the results.
+  \item[Migration] A recorded, versioned instruction for changing the database structure,
+    generated from the models and applied in order.
+  \item[Middleware] Components every request passes through on the way in and every
+    response on the way out, handling concerns no single view should repeat.
+  \item[Session] Server-side storage tied to one browser by a cookie. The browser holds
+    an opaque key; the data lives in a database table.
+  \item[CSRF] Cross-Site Request Forgery: an attack where another site quietly submits a
+    request to one you are logged into, riding your cookie. Django defends with a secret
+    token in every form.
+  \item[Foreign key] A column holding the identifier of a row in another table, expressing
+    ``this donation was entered by that user''. The relationship this project lacks.
+  \item[Decimal vs float] Decimals store digits exactly; floats store binary
+    approximations and drift. Money uses Decimal.
+  \item[UUID] A random 128-bit identifier used instead of a sequential integer, so ids
+    cannot be enumerated or guessed.
+  \item[Password hashing] Storing a one-way scrambled form of a password. Django uses
+    PBKDF2-SHA256 at 600{,}000 iterations; the deliberate slowness makes guessing
+    expensive.
+  \item[Whitenoise] A library letting the Python app serve its own CSS and images
+    competently, so no separate web server is needed.
+  \item[collectstatic] A build step gathering static files into one directory; the
+    manifest variant also hashes filenames for caching, and raises an error if the build
+    step never ran.
+  \item[Gunicorn] The production server that runs the Python application, named in the
+    \file{Procfile}.
+  \item[CRUD] Create, Read, Update, Delete.
+\end{description}
+
+\vfill
+\begin{center}
+\small\itshape
+Every claim here was checked against the source, and every claim marked verified was
+established by executing the code: the test suite, the form validation probes, the export
+behaviour, the mixed-currency totals, and the contents of the committed database.
+\end{center}
+
+\end{document}
